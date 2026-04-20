@@ -1,10 +1,8 @@
 import os
 import json
 import re
+import streamlit as st
 from datetime import datetime, timedelta
-from dotenv import load_dotenv
-
-load_dotenv()
 
 # Category keyword mapping for fallback
 CATEGORY_KEYWORDS = {
@@ -22,18 +20,30 @@ CATEGORY_KEYWORDS = {
 INCOME_KEYWORDS = ["received", "earned", "salary", "got paid", "income", "bonus", "refund", "credited"]
 
 
+def get_api_key(key_name: str) -> str:
+    """
+    Safely get API key from st.secrets (Streamlit Cloud) or environment variables (local).
+    """
+    # Try Streamlit secrets first
+    try:
+        if key_name in st.secrets:
+            return st.secrets[key_name]
+    except Exception:
+        pass
+
+    # Fallback to environment variable
+    return os.getenv(key_name, "")
+
+
 def rule_based_parser(text: str) -> dict:
     """Fallback rule-based parser."""
     text_lower = text.lower()
 
-    # Amount extraction
     amount_match = re.search(r"(?:rs\.?|inr|usd|\$|₹)?\s*(\d+(?:,\d{3})*(?:\.\d+)?)", text_lower)
     amount = float(amount_match.group(1).replace(",", "")) if amount_match else 0.0
 
-    # Type detection
     type_ = "income" if any(kw in text_lower for kw in INCOME_KEYWORDS) else "expense"
 
-    # Category detection
     category = "Other"
     for cat, keywords in CATEGORY_KEYWORDS.items():
         if any(kw in text_lower for kw in keywords):
@@ -42,7 +52,6 @@ def rule_based_parser(text: str) -> dict:
     if type_ == "income" and category == "Other":
         category = "Salary"
 
-    # Date detection
     today = datetime.now().date()
     if "yesterday" in text_lower:
         date = today - timedelta(days=1)
@@ -61,25 +70,25 @@ def rule_based_parser(text: str) -> dict:
 
 
 def parse_with_llm(text: str) -> dict:
-    """Use LangChain + Gemini to parse input."""
+    """Use LangChain + Google Gemini to parse input."""
     try:
         from langchain_google_genai import ChatGoogleGenerativeAI
         from langchain.prompts import PromptTemplate
 
-        api_key = os.getenv("GOOGLE_API_KEY")
+        api_key = get_api_key("GOOGLE_API_KEY")
         if not api_key or api_key == "your_google_gemini_api_key_here":
+            print("[AI Parser] No Google API key found, using rule-based parser.")
             return rule_based_parser(text)
 
         llm = ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash",
+            model="gemini-1.5-flash",
             google_api_key=api_key,
             temperature=0,
         )
 
         today_str = datetime.now().strftime("%Y-%m-%d")
-        prompt = PromptTemplate.from_template("""
-You are a financial transaction parser. Extract structured data from the user's input.
-Return ONLY a valid JSON object (no markdown, no explanations) with these keys:
+        prompt = PromptTemplate.from_template("""You are a financial transaction parser. Extract structured data from the user's input.
+Return ONLY a valid JSON object (no markdown, no explanations, no code fences) with these exact keys:
 - amount (number)
 - category (one of: Food, Travel, Bills, Shopping, Entertainment, Health, Education, Salary, Investment, Other)
 - type (either "income" or "expense")
@@ -88,24 +97,31 @@ Return ONLY a valid JSON object (no markdown, no explanations) with these keys:
 
 User input: "{text}"
 
-JSON:
-""")
+JSON:""")
 
         chain = prompt | llm
         response = chain.invoke({"text": text, "today": today_str})
         content = response.content.strip()
 
-        # Clean JSON from possible markdown fences
+        # Clean JSON from markdown fences
         content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content, flags=re.MULTILINE).strip()
+        json_match = re.search(r"\{.*\}", content, re.DOTALL)
+        if json_match:
+            content = json_match.group(0)
 
         data = json.loads(content)
 
-        # Validate
+        # Validate & sanitize
         data["amount"] = float(data.get("amount", 0))
         data["type"] = data.get("type", "expense").lower()
         if data["type"] not in ["income", "expense"]:
             data["type"] = "expense"
-        data["category"] = data.get("category", "Other")
+
+        valid_categories = ["Food", "Travel", "Bills", "Shopping", "Entertainment",
+                            "Health", "Education", "Salary", "Investment", "Other"]
+        if data.get("category") not in valid_categories:
+            data["category"] = "Other"
+
         data["date"] = data.get("date", today_str)
         data["description"] = data.get("description", text)
         return data
@@ -128,8 +144,8 @@ def generate_monthly_insight(transactions: list) -> str:
     try:
         from langchain_google_genai import ChatGoogleGenerativeAI
 
-        api_key = os.getenv("GOOGLE_API_KEY")
-        if not api_key or api_key == "AIzaSyCAmmcSnP1uX1KQ_YVmPZrphFHGJv0KDzY":
+        api_key = get_api_key("GOOGLE_API_KEY")
+        if not api_key or api_key == "your_google_gemini_api_key_here":
             return _basic_insight(transactions)
 
         llm = ChatGoogleGenerativeAI(
@@ -139,7 +155,7 @@ def generate_monthly_insight(transactions: list) -> str:
         )
 
         summary = _transactions_summary(transactions)
-        prompt = f"""You are a friendly financial advisor. Based on this user's transaction summary, give 3-4 short, actionable insights and tips in a friendly tone. Keep it under 150 words.
+        prompt = f"""You are a friendly financial advisor. Based on this user's transaction summary, give 3-4 short, actionable insights and tips in a friendly tone. Use emojis. Keep it under 150 words.
 
 {summary}
 
@@ -148,6 +164,7 @@ Insights:"""
         response = llm.invoke(prompt)
         return response.content.strip()
     except Exception as e:
+        print(f"[AI Insight] Failed: {e}")
         return _basic_insight(transactions)
 
 
