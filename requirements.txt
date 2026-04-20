@@ -7,3 +7,4 @@ pandas
 python-dotenv
 bcrypt
 pydantic
+langchain-groq
