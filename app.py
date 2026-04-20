@@ -9,7 +9,7 @@ from datetime import date
 from db import init_db, add_transaction
 from auth import login_user, signup_user
 from ai_parser import parse_transaction
-from dashboard import render_dashboard
+from dash import render_dashboard
 from admin import render_admin_login, render_admin_panel
 from utils import format_inr
 
