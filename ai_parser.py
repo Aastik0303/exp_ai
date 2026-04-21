@@ -146,7 +146,7 @@ def parse_with_llm(text: str) -> dict:
             return rule_based_parser(text)
 
         llm = ChatGoogleGenerativeAI(
-            model="gemini-1.5-flash",
+            model="gemini-2.5-flash",
             google_api_key=api_key,
             temperature=0,
         )
@@ -229,9 +229,7 @@ def generate_monthly_insight(transactions: list) -> str:
 
         summary = _transactions_summary(transactions)
         prompt = f"""You are a friendly Indian financial advisor. Based on this user's transaction summary,
-give 3-4 short, actionable insights and tips in a friendly tone. Use emojis.
-Mention amounts in Indian Rupee format. Keep it under 150 words.
-and give responce to the users of there hi like questions 
+give 4-5 line summary according to data and based on information and analyse the data and provide solutions acording to data 
 
 {summary}
 
