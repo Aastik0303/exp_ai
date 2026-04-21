@@ -231,6 +231,7 @@ def generate_monthly_insight(transactions: list) -> str:
         prompt = f"""You are a friendly Indian financial advisor. Based on this user's transaction summary,
 give 3-4 short, actionable insights and tips in a friendly tone. Use emojis.
 Mention amounts in Indian Rupee format. Keep it under 150 words.
+and give responce to the users of there hi like questions 
 
 {summary}
 
